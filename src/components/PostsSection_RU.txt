@@ -1,0 +1,8 @@
+Published=Опубликовано
+Scheduled=Запланировано
+Failed=Ошибка
+Draft=Черновик
+No posts yet=Пока нет постов
+Configure your Threads account=Настройте ваш Threads аккаунт и AI для автоматической генерации
+Created=Создан
+Published=Опубликован
