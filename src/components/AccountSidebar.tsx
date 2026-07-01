@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { Plus, User, ChevronDown, Check, PanelLeftClose, PanelLeft, Folder as FolderIcon } from 'lucide-react';
+import { Plus, User, ChevronDown, Check, PanelLeftClose, PanelLeft, Folder as FolderIcon, Settings } from 'lucide-react';
 import AccountFolders from './AccountFolders';
 import { useToast } from '../contexts/ToastContext';
 import { supabase } from '../lib/supabase';
@@ -26,6 +26,8 @@ interface AccountSidebarProps {
   loading: boolean;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  showSettings?: boolean;
+  onToggleSettings?: (show: boolean) => void;
 }
 
 type TokenStatus = 'valid' | 'expiring' | 'expired' | 'unknown';
@@ -109,6 +111,8 @@ export default function AccountSidebar({
   loading,
   collapsed,
   onToggleCollapse,
+  showSettings,
+  onToggleSettings,
 }: AccountSidebarProps) {
   const { showToast } = useToast();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -226,6 +230,23 @@ export default function AccountSidebar({
         >
           <Plus className="w-5 h-5 text-slate-500" />
         </button>
+
+        <div className="flex-1" />
+
+        {onToggleSettings && (
+          <button
+            type="button"
+            onClick={() => onToggleSettings(!showSettings)}
+            className={`w-10 h-10 rounded-lg flex items-center justify-center transition ${
+              showSettings
+                ? 'bg-blue-50 text-blue-600'
+                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+            }`}
+            title="Настройки"
+          >
+            <Settings className="w-5 h-5" />
+          </button>
+        )}
       </div>
     );
   }
@@ -436,6 +457,22 @@ export default function AccountSidebar({
         </div>
       )}
 
+      {onToggleSettings && (
+        <div className="p-4 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={() => onToggleSettings(!showSettings)}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-sm font-medium ${
+              showSettings
+                ? 'bg-blue-50 text-blue-600'
+                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+            }`}
+          >
+            <Settings className="w-5 h-5 flex-shrink-0" />
+            <span>Настройки</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

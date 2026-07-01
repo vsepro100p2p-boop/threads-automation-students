@@ -35,29 +35,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: {
+          full_name: fullName,
+        },
+      },
     });
 
     if (error) throw error;
-
-    if (data.user) {
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .insert({
-          id: data.user.id,
-          email,
-          full_name: fullName,
-        });
-
-      if (profileError) throw profileError;
-
-      const { error: aiSettingsError } = await supabase
-        .from('ai_settings')
-        .insert({
-          user_id: data.user.id,
-        });
-
-      if (aiSettingsError) throw aiSettingsError;
-    }
   };
 
   const signIn = async (email: string, password: string) => {

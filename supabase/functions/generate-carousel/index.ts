@@ -319,6 +319,7 @@ async function generateCarouselSlides(
 - Общие фразы без фактов/примеров/источников
 - Банальные истины, которые и так все знают
 - Поле "body" — НЕ используй
+- Использовать двойные кавычки (") внутри строковых значений JSON (в points, blockquote_text и др.). Вместо них ВСЕГДА используй одинарные кавычки (') или кавычки-ёлочки (« »). Например, пиши: «Второй мозг», а не "Второй мозг".
 
 === ЛИМИТЫ ===
 - title: 2-8 слов
@@ -344,6 +345,7 @@ async function generateCarouselSlides(
 - Пиши от ПЕРВОГО ЛИЦА ("я", "ты")
 - intro_paragraph: "Думал/Казалось — X. Оказалось — Y." (3-7 слов каждая фраза)
 - points: 20-30 слов каждый, с КОНКРЕТИКОЙ (факты, цифры, названия, техники). ЛИМИТ 70 СЛОВ НА СЛАЙД!
+- Внутри значений JSON (points, blockquote_text, title) категорически запрещено использовать двойные кавычки ("). Всегда заменяй их на «ёлочки» или одинарные кавычки.
 - blockquote_text: панч-фраза 3-10 слов
 - Нумерация в title (1., 2., 3.)
 - Title КОРОТКИЙ (2-5 слов)
@@ -369,5 +371,21 @@ JSON:
 }`;
 
   const text = await callGemini(settings, { system, prompt, temperature: 1.0, json: true });
-  return JSON.parse(text);
+  
+  try {
+    let cleaned = text.trim();
+    // Убираем markdown fences
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    }
+    cleaned = cleaned.trim();
+    
+    // Убираем висячие запятые перед закрывающими скобками
+    cleaned = cleaned.replace(/,(\s*[\]}])/g, '$1');
+    
+    return JSON.parse(cleaned);
+  } catch (err: any) {
+    console.error("Failed to parse carousel JSON. Raw text:", text);
+    throw new Error(`Ошибка разбора JSON от нейросети: ${err.message}. Пожалуйста, попробуйте еще раз.`);
+  }
 }

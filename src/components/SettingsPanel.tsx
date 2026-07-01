@@ -49,6 +49,13 @@ const MODEL_OPTIONS: Record<'deepseek' | 'grok', { value: string; label: string 
   ],
 };
 
+const MODEL_DESCRIPTIONS: Record<string, string> = {
+  'deepseek-v4-pro': 'Флагманская модель с рассуждениями (Reasoning). Идеальна для глубокого анализа структуры и сохранения стилистики автора.',
+  'deepseek-v4-flash': 'Легкая модель для быстрой генерации постов. Очень экономичная и быстрая.',
+  'grok-4.3': 'Последняя флагманская модель от xAI. Обладает высочайшим качеством генерации и доступом к актуальным трендам сети X.',
+  'grok-4.1': 'Базовая модель от xAI, оптимизированная для быстрого создания лаконичных постов.',
+};
+
 export function SettingsPanel() {
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -57,6 +64,7 @@ export function SettingsPanel() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [aiProvider, setAiProvider] = useState<'deepseek' | 'grok'>('deepseek');
+  const [savedAiProvider, setSavedAiProvider] = useState<'deepseek' | 'grok' | null>(null);
   const [deepseekKey, setDeepseekKey] = useState('');
   const [deepseekModel, setDeepseekModel] = useState('deepseek-v4-pro');
   const [grokKey, setGrokKey] = useState('');
@@ -130,7 +138,10 @@ export function SettingsPanel() {
         .select('ai_provider, deepseek_api_key, deepseek_model, grok_api_key, grok_model')
         .eq('user_id', user.id)
         .maybeSingle();
-      if (data?.ai_provider === 'grok') setAiProvider('grok');
+      if (data?.ai_provider === 'grok' || data?.ai_provider === 'deepseek') {
+        setAiProvider(data.ai_provider as 'deepseek' | 'grok');
+        setSavedAiProvider(data.ai_provider as 'deepseek' | 'grok');
+      }
       setHasDeepseekKey(!!data?.deepseek_api_key);
       if (data?.deepseek_model) setDeepseekModel(data.deepseek_model);
       setHasGrokKey(!!data?.grok_api_key);
@@ -163,6 +174,8 @@ export function SettingsPanel() {
       } else {
         await supabase.from('ai_settings').insert({ user_id: user.id, ...nonSecret });
       }
+
+      setSavedAiProvider(aiProvider);
 
       // Шифруем и сохраняем только реально введённые ключи (пустые — не трогаем,
       // чтобы не стереть уже сохранённый ключ).
@@ -308,67 +321,86 @@ export function SettingsPanel() {
       {activeTab === 'meta-apps' && <MetaAppsPanel />}
 
       {activeTab === 'ai' && (
-        <div className="bg-white rounded-xl border border-slate-200 p-6">
-          <div className="flex items-center gap-2 mb-4">
+        <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-6">
+          <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
             <Brain className="w-5 h-5 text-slate-600" />
-            <h3 className="text-lg font-semibold text-slate-900">AI провайдер</h3>
+            <h3 className="text-lg font-semibold text-slate-900">Настройки искусственного интеллекта</h3>
           </div>
 
-          <div className="mb-5">
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Провайдер генерации
+          <div className="space-y-3">
+            <label className="block text-sm font-semibold text-slate-800">
+              Выберите ИИ провайдера
             </label>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {([
-                { id: 'deepseek', label: 'DeepSeek (дешевле)' },
-                { id: 'grok', label: 'Grok (xAI)' },
-              ] as const).map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => setAiProvider(opt.id)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium border transition ${
-                    aiProvider === opt.id
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white text-slate-600 border-slate-300 hover:border-slate-400'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
+                { id: 'deepseek', label: 'DeepSeek', desc: 'Дешёвый за токен, сильный русский язык, подходит для рерайта и анализа' },
+                { id: 'grok', label: 'Grok (xAI)', desc: 'Интеграция с X (Twitter), отлично улавливает свежие тренды и инфоповоды' },
+              ] as const).map((opt) => {
+                const isActive = savedAiProvider === opt.id;
+                const isSelected = aiProvider === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setAiProvider(opt.id)}
+                    className={`p-4 rounded-xl border text-left transition relative flex flex-col justify-between ${
+                      isSelected
+                        ? 'border-blue-600 bg-blue-50/40 ring-2 ring-blue-600/10'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start w-full gap-2 mb-1">
+                      <span className={`font-semibold text-sm ${isSelected ? 'text-blue-900' : 'text-slate-900'}`}>
+                        {opt.label}
+                      </span>
+                      {isActive && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] bg-green-100 text-green-800 border border-green-200 rounded-full font-bold uppercase tracking-wider">
+                          <Check className="w-2.5 h-2.5" /> Выбран
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-slate-500 block leading-relaxed">
+                      {opt.desc}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
           {aiProvider === 'grok' ? (
-            <p className="text-sm text-slate-600 mb-4">
-              Grok от xAI. Получите ключ на <a href="https://console.x.ai" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">console.x.ai</a>.
+            <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-100">
+              Вы выбрали <strong>Grok от xAI</strong>. Получите API-ключ в личном кабинете на <a href="https://console.x.ai" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-medium">console.x.ai</a>.
             </p>
           ) : (
-            <p className="text-sm text-slate-600 mb-4">
-              DeepSeek — дешёвый за токен. Получите ключ на <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">platform.deepseek.com</a>.
+            <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-100">
+              Вы выбрали <strong>DeepSeek</strong>. Получите API-ключ в личном кабинете на <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-medium">platform.deepseek.com</a>.
             </p>
           )}
 
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Модель
-            </label>
-            <select
-              value={currentModel}
-              onChange={(e) => setCurrentModel(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white"
-            >
-              {MODEL_OPTIONS[aiProvider].map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-slate-800">
+                Модель генерации
+              </label>
+              <select
+                value={currentModel}
+                onChange={(e) => setCurrentModel(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white"
+              >
+                {MODEL_OPTIONS[aiProvider].map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-500 italic leading-relaxed">
+                {MODEL_DESCRIPTIONS[currentModel] || 'Описание модели отсутствует.'}
+              </p>
+            </div>
 
-          <div className="flex items-end gap-3">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-slate-700 mb-2">
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-slate-800">
                 {aiProvider === 'grok' ? 'Grok API Key' : 'DeepSeek API Key'}
               </label>
               <div className="relative">
@@ -378,7 +410,7 @@ export function SettingsPanel() {
                   onChange={(e) => setCurrentKey(e.target.value)}
                   placeholder={
                     (aiProvider === 'grok' ? hasGrokKey : hasDeepseekKey)
-                      ? '•••••••• ключ сохранён (введите новый, чтобы заменить)'
+                      ? '•••••••• ключ настроен (введите новый для замены)'
                       : aiProvider === 'grok' ? 'xai-...' : 'sk-...'
                   }
                   className="w-full px-3 py-2 pr-10 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
@@ -391,35 +423,44 @@ export function SettingsPanel() {
                   {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-            </div>
 
+              <div className="flex items-center">
+                {(aiProvider === 'grok' ? hasGrokKey : hasDeepseekKey) ? (
+                  <div className="inline-flex items-center gap-1.5 text-xs text-green-700 bg-green-50 px-2.5 py-1 rounded-md border border-green-200 font-medium">
+                    <Check className="w-3.5 h-3.5" />
+                    Ключ успешно сохранен и зашифрован в базе данных
+                  </div>
+                ) : (
+                  <div className="inline-flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 px-2.5 py-1 rounded-md border border-amber-200 font-medium">
+                    ⚠️ API-ключ не настроен. Генерация контента работать не будет.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end pt-4 border-t border-slate-100">
             <button
               onClick={saveAISettings}
               disabled={savingAI}
-              className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${
+              className={`px-5 py-2.5 rounded-lg font-semibold transition flex items-center gap-2 ${
                 savedAI
-                  ? 'bg-green-100 text-green-700'
+                  ? 'bg-green-600 text-white hover:bg-green-700'
                   : 'bg-blue-600 text-white hover:bg-blue-700'
-              } disabled:opacity-50`}
+              } disabled:opacity-50 shadow-sm`}
             >
               {savedAI ? (
                 <>
                   <Check className="w-4 h-4" />
-                  Сохранено
+                  Настройки сохранены!
                 </>
               ) : (
                 <>
                   <Save className="w-4 h-4" />
-                  Сохранить
+                  Сохранить настройки
                 </>
               )}
             </button>
-          </div>
-
-          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-            <p className="text-sm text-amber-800">
-              <strong>Важно:</strong> Ключ хранится в базе данных и используется для вызовов AI на сервере. Без него генерация каруселей и AI контента не будет работать.
-            </p>
           </div>
         </div>
       )}

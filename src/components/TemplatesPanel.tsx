@@ -34,6 +34,7 @@ interface ThreadsAccount {
 
 interface TemplatesPanelProps {
   selectedAccountId?: string | null;
+  isActive?: boolean;
 }
 
 function CharacterCounter({ current, limit }: { current: number; limit: number }) {
@@ -68,7 +69,7 @@ function CharacterCounter({ current, limit }: { current: number; limit: number }
   );
 }
 
-export default function TemplatesPanel({ selectedAccountId }: TemplatesPanelProps) {
+export default function TemplatesPanel({ selectedAccountId, isActive }: TemplatesPanelProps) {
   const { showToast } = useToast();
   const { user } = useAuth();
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -99,6 +100,24 @@ export default function TemplatesPanel({ selectedAccountId }: TemplatesPanelProp
   const [crossPublishTemplate, setCrossPublishTemplate] = useState<Template | null>(null);
   const [showMediaLibrary, setShowMediaLibrary] = useState(false);
   const [showBulkMoveModal, setShowBulkMoveModal] = useState(false);
+  const [confirmConfig, setConfirmConfig] = useState<{
+    title: string;
+    message: string;
+    confirmText: string;
+    onConfirm: () => void;
+    isDanger?: boolean;
+  } | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+
+  const showConfirm = (
+    title: string,
+    message: string,
+    confirmText: string,
+    onConfirm: () => void,
+    isDanger = false
+  ) => {
+    setConfirmConfig({ title, message, confirmText, onConfirm, isDanger });
+  };
 
   const [formData, setFormData] = useState({
     name: '',
@@ -204,13 +223,13 @@ export default function TemplatesPanel({ selectedAccountId }: TemplatesPanelProp
   }, [user, selectedAccountId]);
 
   useEffect(() => {
-    if (user) {
+    if (user && (isActive === undefined || isActive)) {
       loadFolders();
       loadTemplates();
       loadAccounts();
       loadActiveBatches();
     }
-  }, [user, loadFolders, loadTemplates, loadAccounts, loadActiveBatches]);
+  }, [user, isActive, loadFolders, loadTemplates, loadAccounts, loadActiveBatches]);
 
   const handleCreateTemplate = () => {
     setEditingTemplate(null);
@@ -300,21 +319,28 @@ export default function TemplatesPanel({ selectedAccountId }: TemplatesPanelProp
     }
   };
 
-  const handleDeleteTemplate = async (id: string) => {
-    if (!confirm('Удалить этот шаблон?')) return;
+  const handleDeleteTemplate = (id: string) => {
+    showConfirm(
+      'Удалить этот шаблон?',
+      'Этот шаблон будет безвозвратно удален из вашей библиотеки.',
+      'Удалить',
+      async () => {
+        try {
+          const { error } = await supabase
+            .from('thread_templates')
+            .delete()
+            .eq('id', id);
 
-    try {
-      const { error } = await supabase
-        .from('thread_templates')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
-      loadTemplates();
-    } catch (error) {
-      console.error('Error deleting template:', error);
-      showToast('Ошибка при удалении шаблона', 'error');
-    }
+          if (error) throw error;
+          showToast('Шаблон удален', 'success');
+          loadTemplates();
+        } catch (error) {
+          console.error('Error deleting template:', error);
+          showToast('Ошибка при удалении шаблона', 'error');
+        }
+      },
+      true
+    );
   };
 
   const toggleTemplateActive = async (template: Template) => {
@@ -341,72 +367,77 @@ export default function TemplatesPanel({ selectedAccountId }: TemplatesPanelProp
     setExpandedTemplates(newExpanded);
   };
 
-  const testPublishTemplate = async (template: Template) => {
-    if (!confirm('Опубликовать этот шаблон сейчас?')) return;
+  const testPublishTemplate = (template: Template) => {
+    showConfirm(
+      'Опубликовать этот шаблон сейчас?',
+      'Пост будет отправлен и опубликован в вашем аккаунте Threads прямо сейчас.',
+      'Опубликовать',
+      async () => {
+        setTestPublishing(template.id);
+        try {
+          const account = accounts.find(a => a.id === template.threads_account_id);
+          if (!account) throw new Error('Аккаунт не найден');
 
-    setTestPublishing(template.id);
-    try {
-      const account = accounts.find(a => a.id === template.threads_account_id);
-      if (!account) throw new Error('Аккаунт не найден');
+          const headers = await getAuthHeaders();
 
-      const headers = await getAuthHeaders();
+          const hasImages = template.media_urls && template.media_urls.length > 0;
 
-      const hasImages = template.media_urls && template.media_urls.length > 0;
+          const response = await fetch(
+            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/publish-to-threads`,
+            {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                userId: account.threads_user_id,
+                accessToken: account.access_token,
+                texts: template.content,
+                mediaUrls: hasImages ? template.media_urls : undefined,
+              }),
+            }
+          );
 
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/publish-to-threads`,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            userId: account.threads_user_id,
-            accessToken: account.access_token,
-            texts: template.content,
-            mediaUrls: hasImages ? template.media_urls : undefined,
-          }),
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Response error:', errorText);
+            throw new Error(`Ошибка публикации: ${response.status} - ${errorText}`);
+          }
+
+          const result = await response.json();
+          console.log('Publish result:', result);
+
+          if (!result.success) {
+            throw new Error(result.error || 'Публикация не удалась');
+          }
+
+          await supabase.from('posts').insert({
+            user_id: user?.id,
+            threads_account_id: template.threads_account_id,
+            content: template.content[0],
+            thread_content: template.content,
+            media_urls: template.media_urls || [],
+            is_thread: !hasImages && template.content.length > 1,
+            status: 'published',
+            threads_post_id: result.postId,
+            threads_post_url: result.url,
+            published_at: new Date().toISOString(),
+            generated_by_ai: false,
+          });
+
+          await supabase
+            .from('thread_templates')
+            .update({ use_count: template.use_count + 1 })
+            .eq('id', template.id);
+
+          showToast(`Шаблон опубликован! URL: ${result.url}`, 'success');
+          loadTemplates();
+        } catch (error: any) {
+          console.error('Error publishing:', error);
+          showToast(`Ошибка при публикации: ${error.message}`, 'error');
+        } finally {
+          setTestPublishing(null);
         }
-      );
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Response error:', errorText);
-        throw new Error(`Ошибка публикации: ${response.status} - ${errorText}`);
       }
-
-      const result = await response.json();
-      console.log('Publish result:', result);
-
-      if (!result.success) {
-        throw new Error(result.error || 'Публикация не удалась');
-      }
-
-      await supabase.from('posts').insert({
-        user_id: user?.id,
-        threads_account_id: template.threads_account_id,
-        content: template.content[0],
-        thread_content: template.content,
-        media_urls: template.media_urls || [],
-        is_thread: !hasImages && template.content.length > 1,
-        status: 'published',
-        threads_post_id: result.postId,
-        threads_post_url: result.url,
-        published_at: new Date().toISOString(),
-        generated_by_ai: false,
-      });
-
-      await supabase
-        .from('thread_templates')
-        .update({ use_count: template.use_count + 1 })
-        .eq('id', template.id);
-
-      showToast(`Шаблон опубликован! URL: ${result.url}`, 'success');
-      loadTemplates();
-    } catch (error: any) {
-      console.error('Error publishing:', error);
-      showToast(`Ошибка при публикации: ${error.message}`, 'error');
-    } finally {
-      setTestPublishing(null);
-    }
+    );
   };
 
   const toggleTemplateSelection = (templateId: string) => {
@@ -471,20 +502,26 @@ export default function TemplatesPanel({ selectedAccountId }: TemplatesPanelProp
     }
   };
 
-  const cancelBatch = async (batchId: string) => {
-    if (!confirm('Отменить пакетную публикацию?')) return;
+  const cancelBatch = (batchId: string) => {
+    showConfirm(
+      'Отменить пакетную публикацию?',
+      'Все запланированные в этом пакете посты будут отменены.',
+      'Отменить публикацию',
+      async () => {
+        try {
+          const { error } = await supabase
+            .from('batch_publishes')
+            .update({ status: 'cancelled' })
+            .eq('id', batchId);
 
-    try {
-      const { error } = await supabase
-        .from('batch_publishes')
-        .update({ status: 'cancelled' })
-        .eq('id', batchId);
-
-      if (error) throw error;
-      loadActiveBatches();
-    } catch (error) {
-      console.error('Error cancelling batch:', error);
-    }
+          if (error) throw error;
+          loadActiveBatches();
+        } catch (error) {
+          console.error('Error cancelling batch:', error);
+        }
+      },
+      true
+    );
   };
 
   const toggleSelectAll = () => {
@@ -495,31 +532,37 @@ export default function TemplatesPanel({ selectedAccountId }: TemplatesPanelProp
     }
   };
 
-  const bulkDeleteTemplates = async () => {
+  const bulkDeleteTemplates = () => {
     if (selectedTemplates.size === 0) return;
-    if (!confirm(`Удалить ${selectedTemplates.size} шаблонов?`)) return;
+    showConfirm(
+      'Удалить выбранные шаблоны?',
+      `Вы действительно хотите удалить ${selectedTemplates.size} выбранных шаблонов? Это действие необратимо.`,
+      'Удалить всё',
+      async () => {
+        try {
+          const { error } = await supabase
+            .from('thread_templates')
+            .delete()
+            .in('id', Array.from(selectedTemplates));
 
-    try {
-      const { error } = await supabase
-        .from('thread_templates')
-        .delete()
-        .in('id', Array.from(selectedTemplates));
+          if (error) throw error;
 
-      if (error) throw error;
-
-      if (user) {
-        logActivity(user.id, 'templates_bulk_deleted', {
-          entityType: 'template',
-          details: { count: selectedTemplates.size },
-        });
-      }
-      showToast(`Удалено ${selectedTemplates.size} шаблонов`, 'success');
-      setSelectedTemplates(new Set());
-      loadTemplates();
-    } catch (error) {
-      console.error('Error bulk deleting:', error);
-      showToast('Ошибка при удалении шаблонов', 'error');
-    }
+          if (user) {
+            logActivity(user.id, 'templates_bulk_deleted', {
+              entityType: 'template',
+              details: { count: selectedTemplates.size },
+            });
+          }
+          showToast(`Удалено ${selectedTemplates.size} шаблонов`, 'success');
+          setSelectedTemplates(new Set());
+          loadTemplates();
+        } catch (error) {
+          console.error('Error bulk deleting:', error);
+          showToast('Ошибка при удалении шаблонов', 'error');
+        }
+      },
+      true
+    );
   };
 
   const bulkMoveToFolder = async (folderId: string | null) => {
@@ -799,6 +842,7 @@ export default function TemplatesPanel({ selectedAccountId }: TemplatesPanelProp
     if (!file || !user) return;
     e.target.value = '';
 
+    setIsImporting(true);
     try {
       const text = await file.text();
       const data = JSON.parse(text);
@@ -807,6 +851,7 @@ export default function TemplatesPanel({ selectedAccountId }: TemplatesPanelProp
       const defaultAccountId = selectedAccountId || accounts[0]?.id;
       if (!defaultAccountId) {
         showToast('Добавьте хотя бы один аккаунт перед импортом', 'warning');
+        setIsImporting(false);
         return;
       }
 
@@ -833,6 +878,8 @@ export default function TemplatesPanel({ selectedAccountId }: TemplatesPanelProp
       loadTemplates();
     } catch {
       showToast('Ошибка при импорте файла. Проверьте формат JSON.', 'error');
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -1808,6 +1855,61 @@ export default function TemplatesPanel({ selectedAccountId }: TemplatesPanelProp
           selectionMode={true}
           maxSelection={20 - formData.media_urls.filter(u => u.trim()).length}
         />
+      )}
+
+      {confirmConfig && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl border border-slate-100 max-w-sm w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200 text-center">
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto ${
+              confirmConfig.isDanger ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'
+            }`}>
+              {confirmConfig.isDanger ? (
+                <Trash2 className="w-6 h-6" />
+              ) : (
+                <Sparkles className="w-6 h-6" />
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-base font-bold text-slate-900">{confirmConfig.title}</h3>
+              <p className="text-xs text-slate-500 leading-relaxed">{confirmConfig.message}</p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmConfig(null)}
+                className="flex-1 px-4 py-2.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-sm font-semibold rounded-xl transition shadow-sm"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  confirmConfig.onConfirm();
+                  setConfirmConfig(null);
+                }}
+                className={`flex-1 px-4 py-2.5 text-white text-sm font-semibold rounded-xl transition shadow-md ${
+                  confirmConfig.isDanger
+                    ? 'bg-red-600 hover:bg-red-700 shadow-red-600/10'
+                    : 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/10'
+                }`}
+              >
+                {confirmConfig.confirmText}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isImporting && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl border border-slate-100 max-w-sm w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200 text-center">
+            <Loader2 className="w-10 h-10 animate-spin text-blue-500 mx-auto" />
+            <div className="space-y-1.5">
+              <h3 className="text-base font-bold text-slate-900">Импорт шаблонов</h3>
+              <p className="text-xs text-slate-500 leading-relaxed">Пожалуйста, подождите. Шаблоны загружаются в вашу базу данных...</p>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

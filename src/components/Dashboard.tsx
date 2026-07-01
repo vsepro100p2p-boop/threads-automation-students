@@ -42,10 +42,14 @@ export function Dashboard() {
 
   const selectedAccountIdRef = useRef(selectedAccountId);
   selectedAccountIdRef.current = selectedAccountId;
+  const initialLoadDone = useRef(false);
 
   const loadAccounts = useCallback(async () => {
     if (!user) return;
-    setLoading(true);
+    // Only show full loading spinner on initial load
+    if (!initialLoadDone.current) {
+      setLoading(true);
+    }
 
     const { data } = await supabase
       .from('threads_accounts')
@@ -64,6 +68,7 @@ export function Dashboard() {
     }
 
     setLoading(false);
+    initialLoadDone.current = true;
   }, [user]);
 
   const loadProfile = useCallback(async () => {
@@ -121,7 +126,8 @@ export function Dashboard() {
       loadStats();
       loadAccounts();
     }
-  }, [user, loadProfile, loadStats, loadAccounts]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const handleSelectAccount = useCallback((accountId: string) => {
     setSelectedAccountId(accountId);
@@ -265,25 +271,40 @@ export function Dashboard() {
       </nav>
 
       <div className="flex-1 flex overflow-hidden">
-        {!showGlobalSettings && (
-          <AccountSidebar
-            accounts={filteredAccounts}
-            allAccounts={accounts}
-            selectedAccountId={selectedAccountId}
-            selectedFolderId={selectedFolderId}
-            onSelectAccount={handleSelectAccount}
-            onSelectFolder={setSelectedFolderId}
-            onAddAccount={handleAddAccount}
-            onAccountsChange={loadAccounts}
-            loading={loading}
-            collapsed={sidebarCollapsed}
-            onToggleCollapse={handleToggleSidebar}
-          />
-        )}
+        <AccountSidebar
+          accounts={filteredAccounts}
+          allAccounts={accounts}
+          selectedAccountId={showGlobalSettings ? null : selectedAccountId}
+          selectedFolderId={selectedFolderId}
+          onSelectAccount={(id) => {
+            setShowGlobalSettings(false);
+            handleSelectAccount(id);
+          }}
+          onSelectFolder={setSelectedFolderId}
+          onAddAccount={handleAddAccount}
+          onAccountsChange={loadAccounts}
+          loading={loading}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={handleToggleSidebar}
+          showSettings={showGlobalSettings}
+          onToggleSettings={setShowGlobalSettings}
+        />
 
         {showGlobalSettings ? (
           <div className="flex-1 overflow-y-auto bg-slate-50 p-6">
-            <SettingsPanel />
+            <div className="max-w-4xl mx-auto">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-slate-900">Настройки</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowGlobalSettings(false)}
+                  className="px-4 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-sm font-semibold rounded-xl transition shadow-sm"
+                >
+                  Вернуться на панель
+                </button>
+              </div>
+              <SettingsPanel />
+            </div>
           </div>
         ) : selectedAccount && user ? (
           <AccountWorkspace

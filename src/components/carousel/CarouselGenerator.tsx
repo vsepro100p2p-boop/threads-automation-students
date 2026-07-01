@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { toPng } from 'html-to-image';
-import { Loader2, Download, Dice5, Upload, Save, Check, Bookmark, Trash2, FolderOpen, Send } from 'lucide-react';
+import { Loader2, Download, Dice5, Upload, Save, Check, Bookmark, Trash2, FolderOpen, Send, ChevronLeft, ChevronRight } from 'lucide-react';
 import { supabase, getAuthHeaders } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import type { CarouselContent, CarouselDesign, UserProfile, Slide, CTAType } from './carouselTypes';
@@ -65,6 +65,7 @@ export default function CarouselGenerator() {
   const [activity, setActivity] = useState('');
   const [numSlides, setNumSlides] = useState(5);
   const [carouselContent, setCarouselContent] = useState<CarouselContent | null>(PREVIEW_CONTENT);
+  const [activeSlideIndex, setActiveSlideIndex] = useState(0);
 
   const [isLoading, setIsLoading] = useState(false);
   const [isGeneratingTopic, setIsGeneratingTopic] = useState(false);
@@ -187,6 +188,7 @@ export default function CarouselGenerator() {
     setSelectedDesign(template.design);
     setIsGenerated(true);
     setShowTemplates(false);
+    setActiveSlideIndex(0);
   };
 
   const handleDeleteTemplate = async (id: string) => {
@@ -298,6 +300,7 @@ export default function CarouselGenerator() {
     setError(null);
     setCarouselContent(null);
     setIsGenerated(true);
+    setActiveSlideIndex(0);
     try {
       const content = await callEdgeFunction({
         action: 'generate_content',
@@ -309,6 +312,7 @@ export default function CarouselGenerator() {
         contentStyle: 'practical',
       });
       if (isCustomTitle) content.first_page_title = topic;
+      setActiveSlideIndex(0);
       setCarouselContent(content);
       handleSaveCarouselDraft();
     } catch (err: any) {
@@ -331,6 +335,24 @@ export default function CarouselGenerator() {
       console.error('Error downloading slide', e);
     }
   }, []);
+
+  const handleDownloadAllSlides = useCallback(async () => {
+    if (!carouselContent) return;
+    setError(null);
+    try {
+      const elements = slideRefs.current.filter((el) => el !== null) as HTMLDivElement[];
+      for (let i = 0; i < elements.length; i++) {
+        const dataUrl = await toPng(elements[i], { quality: 1.0, pixelRatio: 3 });
+        const link = document.createElement('a');
+        link.download = `slide-${i + 1}.png`;
+        link.href = dataUrl;
+        link.click();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    } catch (err: any) {
+      setError('Ошибка при скачивании всех слайдов.');
+    }
+  }, [carouselContent]);
 
   const slides: Slide[] = carouselContent
     ? [
@@ -525,51 +547,6 @@ export default function CarouselGenerator() {
           )}
         </div>
 
-        {carouselContent && accounts.length > 0 && (
-          <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Сохранить в шаблоны</p>
-            {accounts.length > 1 && (
-              <select
-                value={selectedAccountId}
-                onChange={(e) => setSelectedAccountId(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-slate-900"
-              >
-                {accounts.map(a => (
-                  <option key={a.id} value={a.id}>@{a.username}</option>
-                ))}
-              </select>
-            )}
-            <button
-              type="button"
-              onClick={handleSaveToThreadTemplates}
-              disabled={isSavingToTemplates}
-              className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all shadow-lg ${
-                savedToTemplates
-                  ? 'bg-emerald-600 shadow-emerald-600/20 text-white'
-                  : 'bg-slate-900 hover:bg-slate-800 shadow-slate-900/20 text-white'
-              }`}
-            >
-              {isSavingToTemplates ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Рендеринг слайдов...</span>
-                </>
-              ) : savedToTemplates ? (
-                <>
-                  <Check className="w-5 h-5" />
-                  Сохранено в шаблоны
-                </>
-              ) : (
-                <>
-                  <Send className="w-5 h-5" />
-                  Сохранить для публикации
-                </>
-              )}
-            </button>
-            <p className="text-[10px] text-slate-400 text-center">Слайды конвертируются в изображения и сохраняются в раздел "Шаблоны"</p>
-          </div>
-        )}
-
         {savedTemplates.length > 0 && (
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
             <button
@@ -613,14 +590,7 @@ export default function CarouselGenerator() {
         )}
       </div>
 
-      <div className="flex-1 overflow-auto">
-        {!isGenerated && carouselContent && (
-          <div className="text-center mb-8">
-            <h2 className="text-2xl font-bold text-slate-900 mb-1">Предпросмотр</h2>
-            <p className="text-slate-500 text-sm">Кликните на текст слайда, чтобы отредактировать.</p>
-          </div>
-        )}
-
+      <div className="flex-1 overflow-auto px-2">
         {isLoading && !carouselContent && (
           <div className="flex items-center justify-center h-64">
             <div className="text-center space-y-3">
@@ -630,40 +600,164 @@ export default function CarouselGenerator() {
           </div>
         )}
 
-        <div className="flex flex-wrap justify-center gap-8 pb-10">
-          {slides.map((slide, index) => (
-            <div key={index} className="group relative">
-              <div
-                ref={(el) => { slideRefs.current[index] = el; }}
-                className="transition-transform duration-300 shadow-2xl group-hover:scale-[1.01]"
-              >
-                <CarouselSlide
-                  design={selectedDesign}
-                  userProfile={userProfile}
-                  isFirstPage={slide.type === 'first'}
-                  isCtaPage={slide.type === 'cta'}
-                  title={slide.type !== 'cta' ? slide.title : undefined}
-                  body={slide.type === 'content' ? slide.body : undefined}
-                  intro_paragraph={slide.type === 'content' ? slide.intro_paragraph : undefined}
-                  points={slide.type === 'content' ? slide.points : undefined}
-                  blockquote_text={slide.type === 'content' ? slide.blockquote_text : undefined}
-                  ctaTitle={slide.type === 'cta' ? slide.title : undefined}
-                  ctaDescription={slide.type === 'cta' ? slide.description : undefined}
-                  slideIndex={index}
-                  totalSlides={slides.length}
-                  onUpdateContent={(field, value) => handleUpdateContent(index, field, value)}
-                />
-              </div>
+        {carouselContent && (
+          <div className="flex flex-col items-center max-w-lg mx-auto py-4">
+            <div className="text-center mb-6">
+              <h2 className="text-xl font-bold text-slate-900 mb-1">Предпросмотр карусели</h2>
+              <p className="text-slate-500 text-xs">Нажмите на любой текст слайда для его изменения.</p>
+            </div>
+
+            {/* Слайдер с кнопками переключения */}
+            <div className="flex items-center gap-4 w-full justify-between sm:justify-center">
               <button
                 type="button"
-                onClick={() => handleDownloadSlide(index)}
-                className="absolute -bottom-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity text-xs text-slate-400 hover:text-slate-700 flex items-center gap-1"
+                onClick={() => setActiveSlideIndex(prev => Math.max(0, prev - 1))}
+                disabled={activeSlideIndex === 0}
+                className="w-10 h-10 shrink-0 rounded-full bg-white hover:bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-600 shadow-md transition-all hover:scale-105 active:scale-95 disabled:opacity-30 disabled:scale-100 disabled:hover:bg-white"
               >
-                <Download className="w-3 h-3" /> PNG
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+
+              <div className="relative">
+                {slides.map((slide, index) => (
+                  <div
+                    key={index}
+                    className={index === activeSlideIndex ? "relative z-10" : "absolute top-0 left-0 pointer-events-none opacity-0 invisible -z-10"}
+                  >
+                    <div
+                      ref={(el) => { slideRefs.current[index] = el; }}
+                      className="transition-transform duration-300 shadow-2xl"
+                    >
+                      <CarouselSlide
+                        design={selectedDesign}
+                        userProfile={userProfile}
+                        isFirstPage={slide.type === 'first'}
+                        isCtaPage={slide.type === 'cta'}
+                        title={slide.type !== 'cta' ? slide.title : undefined}
+                        body={slide.type === 'content' ? slide.body : undefined}
+                        intro_paragraph={slide.type === 'content' ? slide.intro_paragraph : undefined}
+                        points={slide.type === 'content' ? slide.points : undefined}
+                        blockquote_text={slide.type === 'content' ? slide.blockquote_text : undefined}
+                        ctaTitle={slide.type === 'cta' ? slide.title : undefined}
+                        ctaDescription={slide.type === 'cta' ? slide.description : undefined}
+                        slideIndex={index}
+                        totalSlides={slides.length}
+                        onUpdateContent={(field, value) => handleUpdateContent(index, field, value)}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setActiveSlideIndex(prev => Math.min(slides.length - 1, prev + 1))}
+                disabled={activeSlideIndex === slides.length - 1}
+                className="w-10 h-10 shrink-0 rounded-full bg-white hover:bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-600 shadow-md transition-all hover:scale-105 active:scale-95 disabled:opacity-30 disabled:scale-100 disabled:hover:bg-white"
+              >
+                <ChevronRight className="w-5 h-5" />
               </button>
             </div>
-          ))}
-        </div>
+
+            {/* Контроллеры и навигация */}
+            <div className="mt-6 flex flex-col items-center gap-4 w-full">
+              {/* Индикатор слайда */}
+              <div className="text-sm font-semibold text-slate-500">
+                Слайд {activeSlideIndex + 1} из {slides.length}
+              </div>
+
+              {/* Лента номеров слайдов */}
+              <div className="flex items-center flex-wrap justify-center gap-2">
+                {slides.map((_, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setActiveSlideIndex(idx)}
+                    className={`w-8 h-8 rounded-lg text-xs font-bold transition-all ${
+                      idx === activeSlideIndex
+                        ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20 scale-105'
+                        : 'bg-white hover:bg-slate-50 border border-slate-200 text-slate-600'
+                    }`}
+                  >
+                    {idx + 1}
+                  </button>
+                ))}
+              </div>
+
+              {/* Кнопки скачивания */}
+              <div className="flex flex-col sm:flex-row items-center gap-3 mt-2 w-full max-w-sm">
+                <button
+                  type="button"
+                  onClick={() => handleDownloadSlide(activeSlideIndex)}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-slate-700 text-sm font-semibold transition-colors shadow-sm"
+                >
+                  <Download className="w-4 h-4 text-slate-500" />
+                  Скачать текущий (PNG)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadAllSlides}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-slate-700 text-sm font-semibold transition-colors shadow-sm"
+                >
+                  <Download className="w-4 h-4 text-blue-500" />
+                  Скачать все слайды (PNG)
+                </button>
+              </div>
+            </div>
+
+            {/* Блок сохранения для публикации */}
+            {accounts.length > 0 && (
+              <div className="w-full mt-8 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+                <div className="flex flex-col gap-1 text-center sm:text-left">
+                  <h4 className="text-sm font-bold text-slate-900">Сохранить для публикации</h4>
+                  <p className="text-[11px] text-slate-400">Слайды будут сконвертированы в изображения и добавлены в раздел «Шаблоны».</p>
+                </div>
+                
+                <div className="flex flex-col sm:flex-row gap-3">
+                  {accounts.length > 1 && (
+                    <select
+                      value={selectedAccountId}
+                      onChange={(e) => setSelectedAccountId(e.target.value)}
+                      className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-slate-900 flex-1 sm:max-w-xs cursor-pointer"
+                    >
+                      {accounts.map(a => (
+                        <option key={a.id} value={a.id}>@{a.username}</option>
+                      ))}
+                    </select>
+                  )}
+                  
+                  <button
+                    type="button"
+                    onClick={handleSaveToThreadTemplates}
+                    disabled={isSavingToTemplates}
+                    className={`flex-grow flex items-center justify-center gap-2 py-3 px-6 rounded-xl font-bold transition-all shadow-md ${
+                      savedToTemplates
+                        ? 'bg-emerald-600 shadow-emerald-600/20 text-white'
+                        : 'bg-slate-900 hover:bg-slate-800 shadow-slate-900/20 text-white'
+                    }`}
+                  >
+                    {isSavingToTemplates ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <span>Рендеринг и сохранение...</span>
+                      </>
+                    ) : savedToTemplates ? (
+                      <>
+                        <Check className="w-5 h-5" />
+                        Сохранено в шаблоны
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-5 h-5" />
+                        Сохранить в шаблоны
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,0 +1,22 @@
+# Cursor Rules for Threads Automation Setup
+
+When the user asks to "deploy", "setup", "install", or "configure" the project:
+
+1. Read the setup runbook in `CLAUDE.md`.
+2. Ask the user for the following credentials (do not proceed without them):
+   - `SUPABASE_ACCESS_TOKEN` (Supabase personal access token)
+   - `SUPABASE_PROJECT_REF` (Supabase project reference)
+   - `SUPABASE_DB_PASSWORD` (Supabase database password)
+3. Write these credentials to `.deploy.env` in the project root:
+   ```env
+   SUPABASE_ACCESS_TOKEN=your_token
+   SUPABASE_PROJECT_REF=your_ref
+   SUPABASE_DB_PASSWORD=your_password
+   ```
+4. Run the automated deploy script:
+   ```bash
+   bash scripts/deploy.sh
+   ```
+5. Follow the output of the deploy script:
+   - If `.vault-setup.sql` is generated, instruct the user to run its contents in the Supabase Dashboard -> SQL Editor.
+   - Explain the remaining manual steps (Meta App setup, AI model key configuration, and frontend hosting) as detailed in `CLAUDE.md` and `SETUP.md`.

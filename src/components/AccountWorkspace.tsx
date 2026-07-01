@@ -421,25 +421,25 @@ export default function AccountWorkspace({ account, user, onAccountUpdate, onAcc
       <div className="flex-1 overflow-auto p-6">
         {mountedTabs.has('templates') && (
           <div className={activeTab === 'templates' ? '' : 'hidden'}>
-            <TemplatesPanel selectedAccountId={account.id} />
+            <TemplatesPanel selectedAccountId={account.id} isActive={activeTab === 'templates'} />
           </div>
         )}
 
         {mountedTabs.has('viral') && (
           <div className={activeTab === 'viral' ? '' : 'hidden'}>
-            <ViralThreadGenerator user={user} accounts={accountsArray} />
+            <ViralThreadGenerator user={user} accounts={accountsArray} isActive={activeTab === 'viral'} />
           </div>
         )}
 
         {mountedTabs.has('carousel') && (
           <div className={activeTab === 'carousel' ? '' : 'hidden'}>
-            <CarouselGenerator />
+            <CarouselGenerator isActive={activeTab === 'carousel'} />
           </div>
         )}
 
         {mountedTabs.has('autopost') && (
           <div className={activeTab === 'autopost' ? '' : 'hidden'}>
-            <AIAutoPosting user={user} accounts={accountsArray} />
+            <AIAutoPosting user={user} accounts={accountsArray} isActive={activeTab === 'autopost'} />
           </div>
         )}
 

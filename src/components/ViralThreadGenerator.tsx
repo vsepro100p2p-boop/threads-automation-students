@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Sparkles, Send, Save, RefreshCw } from 'lucide-react';
 import { supabase, getSupabaseUrl, getAuthHeaders } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
@@ -24,9 +24,10 @@ interface ThreadsAccount {
 interface ViralThreadGeneratorProps {
   user: { id: string } | null;
   accounts: ThreadsAccount[];
+  isActive?: boolean;
 }
 
-export default function ViralThreadGenerator({ user, accounts }: ViralThreadGeneratorProps) {
+export default function ViralThreadGenerator({ user, accounts, isActive }: ViralThreadGeneratorProps) {
   const { showToast } = useToast();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
@@ -59,15 +60,25 @@ export default function ViralThreadGenerator({ user, accounts }: ViralThreadGene
     }
   }, [accountId]);
 
+  const lastLoadedAccountIdRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (user && accountId) {
-      setInitialLoading(true);
-      loadTemplates().finally(() => setInitialLoading(false));
+    if (user && accountId && (isActive === undefined || isActive)) {
+      const isAccountChanged = lastLoadedAccountIdRef.current !== accountId;
+      if (isAccountChanged) {
+        setInitialLoading(true);
+        lastLoadedAccountIdRef.current = accountId;
+      }
+      loadTemplates().finally(() => {
+        if (isAccountChanged) {
+          setInitialLoading(false);
+        }
+      });
       const now = new Date();
       now.setHours(now.getHours() + 1);
       setScheduleDate(now.toISOString().split('T')[0]);
     }
-  }, [user, accountId]);
+  }, [user, accountId, isActive, loadTemplates]);
 
   const generateVariants = async () => {
     if (!selectedTemplate) {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Play, Pause, Trash2, Plus, Clock, Zap, Key, Eye, Sparkles, Save, CheckCircle, AlertCircle, RefreshCw, Copy, Pencil, X } from 'lucide-react';
 import { useToast } from '../contexts/ToastContext';
 import { logActivity } from '../lib/activityLogger';
@@ -39,6 +39,7 @@ interface ThreadsAccount {
 interface AIAutoPostingProps {
   user: { id: string } | null;
   accounts: ThreadsAccount[];
+  isActive?: boolean;
 }
 
 type ActiveTab = 'schedules' | 'settings' | 'test';
@@ -177,7 +178,7 @@ function ExactTimesEditor({
   );
 }
 
-export default function AIAutoPosting({ user, accounts }: AIAutoPostingProps) {
+export default function AIAutoPosting({ user, accounts, isActive }: AIAutoPostingProps) {
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState<ActiveTab>('schedules');
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -299,16 +300,24 @@ export default function AIAutoPosting({ user, accounts }: AIAutoPostingProps) {
     }
   }, [user]);
 
+  const lastLoadedAccountIdRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (user && accountId) {
-      setSchedules([]);
-      setTemplates([]);
-      setInitialLoading(true);
+    if (user && accountId && (isActive === undefined || isActive)) {
+      const isAccountChanged = lastLoadedAccountIdRef.current !== accountId;
+      if (isAccountChanged) {
+        setSchedules([]);
+        setTemplates([]);
+        setInitialLoading(true);
+        lastLoadedAccountIdRef.current = accountId;
+      }
       Promise.all([loadSchedules(), loadTemplates(), loadUserTimezone()]).finally(() => {
-        setInitialLoading(false);
+        if (isAccountChanged) {
+          setInitialLoading(false);
+        }
       });
     }
-  }, [user, accountId, loadSchedules, loadTemplates, loadUserTimezone]);
+  }, [user, accountId, isActive, loadSchedules, loadTemplates, loadUserTimezone]);
 
 
   const testGeneration = async () => {
