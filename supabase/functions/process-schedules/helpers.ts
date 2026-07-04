@@ -2,6 +2,7 @@
 // расчёт окна расписания. Вынесены из index.ts, чтобы там осталась только
 // оркестрация. Зависят лишь от decryptSecret (токены в БД зашифрованы).
 import { decryptSecret } from '../_shared/crypto.ts';
+import { callAI } from '../_shared/ai.ts';
 
 export function getUserHour(timezone: string): number {
   const now = new Date();
@@ -190,44 +191,79 @@ export function detectAuthorGender(posts: string[]): string {
   if (maleScore > femaleScore) return 'МУЖСКОЙ (он, делал, был, смог)';
   return 'нейтральный';
 }
+function pickTopic(aiSettings: any): string {
+  const topics = Array.isArray(aiSettings?.topics)
+    ? aiSettings.topics.map((topic: unknown) => String(topic).trim()).filter(Boolean)
+    : [];
+
+  if (topics.length === 0) {
+    throw new Error('AI topics are not configured');
+  }
+
+  return topics[Math.floor(Math.random() * topics.length)];
+}
+
+function validatePostText(text: unknown, label: string): string {
+  if (typeof text !== 'string') {
+    throw new Error(`${label} must be a text string`);
+  }
+
+  const trimmed = text.trim();
+  if (!trimmed) {
+    throw new Error(`${label} is empty`);
+  }
+
+  if (trimmed.length > 500) {
+    throw new Error(`${label} exceeds 500 characters`);
+  }
+
+  return trimmed;
+}
+
 export async function generateSinglePost(aiSettings: any): Promise<string> {
-  const templates = [
-    "Просто осознал, что {topic} гораздо интереснее, чем я думал. 🤔",
-    "Горячее мнение: {topic} не получает достаточно внимания.",
-    "Три вещи о {topic}, которые взорвали мой мозг...",
-    "Почему никто не говорит о {topic}? 🤔",
-    "Честно: {topic} недооценен, и вот почему.",
-  ];
+  const topic = pickTopic(aiSettings);
+  const response = await callAI(aiSettings, {
+    system: 'You write ready-to-publish Threads posts. Return only the final post text, without explanations, markdown, variants, or quotes.',
+    prompt: `Create one ready-to-publish Threads post about this topic: "${topic}". The post must be non-empty and no longer than 500 characters.`,
+    temperature: 0.9,
+    maxTokens: 700,
+  });
 
-  const topics = aiSettings.topics && aiSettings.topics.length > 0
-    ? aiSettings.topics
-    : ['продуктивность', 'технологии', 'личный рост', 'творчество'];
-
-  const template = templates[Math.floor(Math.random() * templates.length)];
-  const topic = topics[Math.floor(Math.random() * topics.length)];
-
-  return template.replace('{topic}', topic);
+  return validatePostText(response, 'AI single post');
 }
 
 export async function generateThread(aiSettings: any, count: number): Promise<string[]> {
-  const thread: string[] = [];
-  const topics = aiSettings.topics && aiSettings.topics.length > 0
-    ? aiSettings.topics
-    : ['технологии', 'образование', 'творчество', 'бизнес'];
-
-  const topic = topics[Math.floor(Math.random() * topics.length)];
-
-  thread.push(`Тред о ${topic} 🧵`);
-
-  for (let i = 1; i < count - 1; i++) {
-    thread.push(`${i}/ Важная мысль о ${topic}, которую стоит рассмотреть.`);
+  if (!Number.isInteger(count) || count < 1) {
+    throw new Error('Thread post count must be a positive integer');
   }
 
-  if (count > 1) {
-    thread.push(`Вот и все! Что думаете? 💭`);
+  const topic = pickTopic(aiSettings);
+  const response = await callAI(aiSettings, {
+    system: 'You write ready-to-publish Threads threads. Return only valid JSON matching the requested schema.',
+    prompt: `Create a Threads thread about this topic: "${topic}". Return json exactly in this shape: {"posts":["first post","second post"]}. The posts array must contain exactly ${count} string items. Each post must be non-empty and no longer than 500 characters.`,
+    temperature: 0.9,
+    maxTokens: Math.max(700, count * 220),
+    json: true,
+  });
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(response);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`AI thread response is not valid JSON: ${message}`);
   }
 
-  return thread.slice(0, count);
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as { posts?: unknown }).posts)) {
+    throw new Error('AI thread response must contain a posts array');
+  }
+
+  const posts = (parsed as { posts: unknown[] }).posts;
+  if (posts.length !== count) {
+    throw new Error(`AI thread response must contain exactly ${count} posts`);
+  }
+
+  return posts.map((post, index) => validatePostText(post, `AI thread post ${index + 1}`));
 }
 
 export async function publishSinglePost(
