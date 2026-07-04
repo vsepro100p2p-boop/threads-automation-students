@@ -336,12 +336,11 @@ export async function publishThread(
       if (!createResponse.ok) {
         const errorText = await createResponse.text();
         console.error(`Container ${i + 1} creation failed:`, errorText);
-        const partial = publishedCount > 0;
         return {
-          success: partial,
+          success: false,
           postId: firstPostId || undefined,
           url: firstPostId ? `https://www.threads.net/t/${firstPostId}` : undefined,
-          error: `Failed to create post ${i + 1}/${texts.length}: ${errorText}${partial ? ` (${publishedCount}/${texts.length} posts published)` : ''}`,
+          error: `Failed to create post ${i + 1}/${texts.length}: ${errorText} (${publishedCount}/${texts.length} posts published)`,
           publishedCount,
         };
       }
@@ -351,12 +350,11 @@ export async function publishThread(
 
       const statusCheck = await checkContainerStatus(userId, containerId, accessToken);
       if (!statusCheck.success) {
-        const partial = publishedCount > 0;
         return {
-          success: partial,
+          success: false,
           postId: firstPostId || undefined,
           url: firstPostId ? `https://www.threads.net/t/${firstPostId}` : undefined,
-          error: `Post ${i + 1}/${texts.length} status failed: ${statusCheck.error}${partial ? ` (${publishedCount}/${texts.length} posts published)` : ''}`,
+          error: `Post ${i + 1}/${texts.length} status failed: ${statusCheck.error} (${publishedCount}/${texts.length} posts published)`,
           publishedCount,
         };
       }
@@ -377,12 +375,11 @@ export async function publishThread(
       if (!publishResponse.ok) {
         const errorText = await publishResponse.text();
         console.error(`Publish ${i + 1} failed:`, errorText);
-        const partial = publishedCount > 0;
         return {
-          success: partial,
+          success: false,
           postId: firstPostId || undefined,
           url: firstPostId ? `https://www.threads.net/t/${firstPostId}` : undefined,
-          error: `Failed to publish post ${i + 1}/${texts.length}: ${errorText}${partial ? ` (${publishedCount}/${texts.length} posts published)` : ''}`,
+          error: `Failed to publish post ${i + 1}/${texts.length}: ${errorText} (${publishedCount}/${texts.length} posts published)`,
           publishedCount,
         };
       }
@@ -407,12 +404,12 @@ export async function publishThread(
     return { success: true, postId: firstPostId!, url, publishedCount };
   } catch (error) {
     console.error('Unexpected error in publishThread:', error);
-    const partial = publishedCount > 0;
+    const errorMessage = error instanceof Error ? error.message : String(error);
     return {
-      success: partial,
+      success: false,
       postId: firstPostId || undefined,
       url: firstPostId ? `https://www.threads.net/t/${firstPostId}` : undefined,
-      error: `${error.message}${partial ? ` (${publishedCount}/${texts.length} posts published)` : ''}`,
+      error: `${errorMessage} (${publishedCount}/${texts.length} posts published)`,
       publishedCount,
     };
   }
