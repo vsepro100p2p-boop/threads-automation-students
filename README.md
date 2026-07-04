@@ -55,7 +55,7 @@ React (Vite) ──► Supabase (Postgres + RLS + Auth)
 | `generate-viral-threads` | Генерация виральных тредов |
 | `generate-post` / `generate-carousel` | Генерация поста / карусели |
 | `parse-text-ai` | Разбор текста в треды через AI |
-| `exchange-long-lived-token` / `refresh-token` / `update-token-manual` | Управление токенами Meta |
+| `exchange-long-lived-token` / `refresh-token` | Управление токенами Meta |
 | `publish-thread-test` | Тестовая публикация |
 
 ## 🚀 Развернуть свою копию
