@@ -32,7 +32,7 @@ Deno.serve(async (req: Request) => {
 
     const now = new Date().toISOString();
 
-    const { data: dueBatches } = await supabase
+    const { data: dueBatches, error: dueBatchesError } = await supabase
       .from('batch_publishes')
       .select(`
         *,
@@ -41,7 +41,11 @@ Deno.serve(async (req: Request) => {
       .in('status', ['pending', 'in_progress'])
       .lte('next_publish_at', now);
 
-    const { data: scheduledDrafts } = await supabase
+    if (dueBatchesError) {
+      throw new Error(`Failed to load batch_publishes: ${dueBatchesError.message}`);
+    }
+
+    const { data: scheduledDrafts, error: scheduledDraftsError } = await supabase
       .from('draft_posts')
       .select(`
         *,
@@ -50,7 +54,11 @@ Deno.serve(async (req: Request) => {
       .eq('status', 'scheduled')
       .lte('scheduled_for', now);
 
-    const { data: dueTemplateSchedules } = await supabase
+    if (scheduledDraftsError) {
+      throw new Error(`Failed to load draft_posts: ${scheduledDraftsError.message}`);
+    }
+
+    const { data: dueTemplateSchedules, error: dueTemplateSchedulesError } = await supabase
       .from('template_schedules')
       .select(`
         *,
@@ -63,7 +71,11 @@ Deno.serve(async (req: Request) => {
       .eq('status', 'pending')
       .lte('scheduled_for', now);
 
-    const { data: dueSchedules } = await supabase
+    if (dueTemplateSchedulesError) {
+      throw new Error(`Failed to load template_schedules: ${dueTemplateSchedulesError.message}`);
+    }
+
+    const { data: dueSchedules, error: dueSchedulesError } = await supabase
       .from('post_schedules')
       .select(`
         *,
@@ -72,6 +84,10 @@ Deno.serve(async (req: Request) => {
       `)
       .eq('is_enabled', true)
       .lte('next_post_at', now);
+
+    if (dueSchedulesError) {
+      throw new Error(`Failed to load post_schedules: ${dueSchedulesError.message}`);
+    }
 
     const results = [];
 
@@ -470,7 +486,7 @@ Deno.serve(async (req: Request) => {
     }
     }
 
-    const { data: aiAutopostingSchedules } = await supabase
+    const { data: aiAutopostingSchedules, error: aiAutopostingSchedulesError } = await supabase
       .from('ai_autoposting_schedules')
       .select(`
         *,
@@ -479,6 +495,10 @@ Deno.serve(async (req: Request) => {
       `)
       .eq('is_enabled', true)
       .lte('next_post_at', now);
+
+    if (aiAutopostingSchedulesError) {
+      throw new Error(`Failed to load ai_autoposting_schedules: ${aiAutopostingSchedulesError.message}`);
+    }
 
     if (aiAutopostingSchedules && aiAutopostingSchedules.length > 0) {
       for (const schedule of aiAutopostingSchedules) {
