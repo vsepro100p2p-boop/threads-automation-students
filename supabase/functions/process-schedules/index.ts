@@ -416,6 +416,11 @@ Deno.serve(async (req: Request) => {
           continue;
         }
 
+        if (!hasAIKey(aiSettings)) {
+          results.push({ scheduleId: schedule.id, error: missingKeyError(aiSettings) });
+          continue;
+        }
+
         const threadCount = aiSettings.thread_count || 1;
         let content: string;
         let threadContent: string[] = [];
