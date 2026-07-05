@@ -390,20 +390,30 @@ Deno.serve(async (req: Request) => {
 
     if (dueSchedules && dueSchedules.length > 0) {
     for (const schedule of dueSchedules) {
+      let lockedNextPostAt: string | null = null;
+      let threadsPublicationStarted = false;
+
       try {
         const tempNext = new Date();
         tempNext.setMinutes(tempNext.getMinutes() + schedule.frequency_minutes);
+        const lockNextPostAt = tempNext.toISOString();
 
-        const { data: scheduleLock } = await supabase
+        const { data: scheduleLock, error: scheduleLockError } = await supabase
           .from('post_schedules')
-          .update({ next_post_at: tempNext.toISOString() })
+          .update({ next_post_at: lockNextPostAt })
           .eq('id', schedule.id)
           .eq('next_post_at', schedule.next_post_at)
           .select();
 
+        if (scheduleLockError) {
+          throw new Error(`Failed to lock post_schedules: ${scheduleLockError.message}`);
+        }
+
         if (!scheduleLock || scheduleLock.length === 0) {
           continue;
         }
+
+        lockedNextPostAt = lockNextPostAt;
 
         const { data: aiSettings } = await supabase
           .from('ai_settings')
@@ -412,13 +422,11 @@ Deno.serve(async (req: Request) => {
           .single();
 
         if (!aiSettings) {
-          results.push({ scheduleId: schedule.id, error: 'AI settings not found' });
-          continue;
+          throw new Error('AI settings not found');
         }
 
         if (!hasAIKey(aiSettings)) {
-          results.push({ scheduleId: schedule.id, error: missingKeyError(aiSettings) });
-          continue;
+          throw new Error(missingKeyError(aiSettings));
         }
 
         const threadCount = aiSettings.thread_count || 1;
@@ -440,6 +448,7 @@ Deno.serve(async (req: Request) => {
         }
         if (schedule.threads_accounts.is_demo || schedule.threads_accounts.access_token === 'demo') continue; // демо-аккаунт: не публикуем
 
+        threadsPublicationStarted = true;
         const publishResult = isThread
           ? await publishThread(
               schedule.threads_accounts.threads_user_id,
@@ -486,7 +495,32 @@ Deno.serve(async (req: Request) => {
           postId: publishResult.postId,
         });
       } catch (error) {
-        results.push({ scheduleId: schedule.id, error: error.message });
+        const message = error instanceof Error ? error.message : String(error);
+
+        if (lockedNextPostAt && !threadsPublicationStarted) {
+          const retryAt = new Date();
+          retryAt.setMinutes(retryAt.getMinutes() + 5);
+
+          const { error: retryUpdateError } = await supabase
+            .from('post_schedules')
+            .update({
+              next_post_at: retryAt.toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', schedule.id)
+            .eq('next_post_at', lockedNextPostAt);
+
+          if (retryUpdateError) {
+            results.push({
+              scheduleId: schedule.id,
+              error: message,
+              retryError: retryUpdateError.message,
+            });
+            continue;
+          }
+        }
+
+        results.push({ scheduleId: schedule.id, error: message });
       }
     }
     }
