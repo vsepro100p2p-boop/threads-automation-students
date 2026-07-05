@@ -541,6 +541,9 @@ Deno.serve(async (req: Request) => {
 
     if (aiAutopostingSchedules && aiAutopostingSchedules.length > 0) {
       for (const schedule of aiAutopostingSchedules) {
+        let lockedNextPostAt: string | null = null;
+        let threadsPublicationStarted = false;
+
         try {
           const userTimezone = schedule.profiles?.timezone || 'UTC';
           // Режим «точное время»: публикуем в конкретные времена daily_times,
@@ -579,23 +582,30 @@ Deno.serve(async (req: Request) => {
             ? calculateNextExactTime(schedule.daily_times, userTimezone)
             : new Date(Date.now() + schedule.frequency_minutes * 60000);
 
-          const { data: lockResult } = await supabase
+          const lockNextPostAt = tempNextPostTime.toISOString();
+
+          const { data: lockResult, error: lockError } = await supabase
             .from('ai_autoposting_schedules')
             .update({
-              next_post_at: tempNextPostTime.toISOString()
+              next_post_at: lockNextPostAt
             })
             .eq('id', schedule.id)
             .eq('next_post_at', schedule.next_post_at)
             .select();
 
+          if (lockError) {
+            throw new Error(`Failed to lock ai_autoposting_schedules: ${lockError.message}`);
+          }
+
           if (!lockResult || lockResult.length === 0) {
             continue;
           }
 
+          lockedNextPostAt = lockNextPostAt;
+
           if (schedule.threads_accounts?.is_demo || schedule.threads_accounts?.access_token === 'demo') continue; // демо-аккаунт: не публикуем
           if (!schedule.threads_accounts) {
-            results.push({ aiScheduleId: schedule.id, error: 'Associated account not found or deleted' });
-            continue;
+            throw new Error('Associated account not found or deleted');
           }
 
           const { data: aiSettings } = await supabase
@@ -605,14 +615,12 @@ Deno.serve(async (req: Request) => {
             .single();
 
           if (!hasAIKey(aiSettings)) {
-            results.push({ aiScheduleId: schedule.id, error: missingKeyError(aiSettings) });
-            continue;
+            throw new Error(missingKeyError(aiSettings));
           }
 
           const templateIds = schedule.template_ids || [];
           if (templateIds.length === 0) {
-            results.push({ aiScheduleId: schedule.id, error: 'No templates configured' });
-            continue;
+            throw new Error('No templates configured');
           }
 
           const currentIndex = schedule.current_template_index || 0;
@@ -625,8 +633,7 @@ Deno.serve(async (req: Request) => {
             .maybeSingle();
 
           if (templateError || !template) {
-            results.push({ aiScheduleId: schedule.id, error: 'Template not found' });
-            continue;
+            throw new Error('Template not found');
           }
 
           const templateContent = template.content as string[];
@@ -648,6 +655,7 @@ Deno.serve(async (req: Request) => {
             mediaUrls = templateMediaUrls;
 
             if (mediaUrls.length > 0) {
+              threadsPublicationStarted = true;
               publishResult = await publishCarousel(
                 schedule.threads_accounts.threads_user_id,
                 schedule.threads_accounts.access_token,
@@ -655,6 +663,7 @@ Deno.serve(async (req: Request) => {
                 mediaUrls
               );
             } else {
+              threadsPublicationStarted = true;
               publishResult = await publishThread(
                 schedule.threads_accounts.threads_user_id,
                 schedule.threads_accounts.access_token,
@@ -742,6 +751,7 @@ Deno.serve(async (req: Request) => {
             mediaUrls = templateMediaUrls;
 
             if (mediaUrls.length > 0) {
+              threadsPublicationStarted = true;
               publishResult = await publishCarousel(
                 schedule.threads_accounts.threads_user_id,
                 schedule.threads_accounts.access_token,
@@ -749,6 +759,7 @@ Deno.serve(async (req: Request) => {
                 mediaUrls
               );
             } else {
+              threadsPublicationStarted = true;
               publishResult = await publishThread(
                 schedule.threads_accounts.threads_user_id,
                 schedule.threads_accounts.access_token,
@@ -804,7 +815,32 @@ Deno.serve(async (req: Request) => {
             postId: publishResult.postId,
           });
         } catch (error) {
-          results.push({ aiScheduleId: schedule.id, error: error.message });
+          const message = error instanceof Error ? error.message : String(error);
+
+          if (lockedNextPostAt && !threadsPublicationStarted) {
+            const retryAt = new Date();
+            retryAt.setMinutes(retryAt.getMinutes() + 5);
+
+            const { error: retryUpdateError } = await supabase
+              .from('ai_autoposting_schedules')
+              .update({
+                next_post_at: retryAt.toISOString(),
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', schedule.id)
+              .eq('next_post_at', lockedNextPostAt);
+
+            if (retryUpdateError) {
+              results.push({
+                aiScheduleId: schedule.id,
+                error: message,
+                retryError: retryUpdateError.message,
+              });
+              continue;
+            }
+          }
+
+          results.push({ aiScheduleId: schedule.id, error: message });
         }
       }
     }
